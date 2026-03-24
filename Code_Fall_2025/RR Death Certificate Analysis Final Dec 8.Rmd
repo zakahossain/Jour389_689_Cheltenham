@@ -1,0 +1,965 @@
+---
+title: "RR Death Certificate Analysis Master Code"
+author: "Wells and Jour 772"
+date: "2025-12-7"
+output: html_document
+---
+
+This is the master code for Jour 772, Fall 2025, analysis of the Cheltenham, Jessup and Hickey death certificates
+
+Wells, Ruiz, Hossain, Landerman, Ramos master code Dec 7 2025: Previously Clean_Analyze_Death_Certificates_Dec_3.rmd
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load libraries
+```{r}
+# install.packages("htmlwidgets")
+# install.packages("leaflet")
+#install.packages("sf")
+#install.packages('DT')
+library(DT)
+library(tidyverse)
+library(rio)
+library(janitor)
+library(htmlwidgets)
+library(leaflet)
+library(sf)
+library(googlesheets4)
+library(formattable)
+```
+
+### Import Extracted Death Certificate Data
+```{r}
+
+gs4_deauth()  
+dc <- read_sheet("https://docs.google.com/spreadsheets/d/13CthhhfLHiPZqr1P67SCa9BVUyb5Rl6OBhUwvqawDEk/edit?usp=sharing", sheet = "master_deaths_dec_5", col_types ="c") |> 
+     clean_names() |> 
+     mutate(approx_age = as.numeric(str_extract(age_on_death_certificate, "^\\d+")))
+
+
+
+#imports 177 entries - Dec 7
+
+
+```
+
+
+```{r include=FALSE}
+# Function to parse the different date formats
+standardize_date <- function(date_string) {
+  if (is.na(date_string) || date_string == "N/A") {
+    return(NA)
+  }
+  
+  # Try parsing as "d Mon yyyy" format first
+  parsed <- dmy(date_string, quiet = TRUE)
+  
+  # If that fails, try "m/d/yyyy" format
+  if (is.na(parsed)) {
+    parsed <- mdy(date_string, quiet = TRUE)
+  }
+  
+  # If still fails, try "Month yyyy" format (will default to 1st of month)
+  if (is.na(parsed)) {
+    parsed <- my(date_string, quiet = TRUE)
+  }
+  
+  return(parsed)
+}
+
+dc$death_date_clean <- sapply(dc$death_date1, standardize_date)
+dc$death_date_clean <- as.Date(dc$death_date_clean)
+```
+
+### Death year
+```{r}
+dc <- dc |> 
+  mutate(death_year = year(death_date_clean),
+         death_decade = floor(death_year / 10) * 10)
+```
+
+#### Birth dates
+Using the date cleaning sequence above, do the same processing for birth dates**
+
+```{r}
+standardize_birth_date <- function(date_string) {
+  if (is.na(date_string) || date_string == "N/A") {
+    return(NA)
+  }
+  
+  # Check if birth_date contains "no_details"
+  if (grepl("no_details", date_string, ignore.case = TRUE)) {
+    return(NA)
+  }
+  
+  # Try parsing as "d Mon yyyy" format first
+  parsed <- dmy(date_string, quiet = TRUE)
+  
+  # If that fails, try "m/d/yyyy" format
+  if (is.na(parsed)) {
+    parsed <- mdy(date_string, quiet = TRUE)
+  }
+  
+  # If still fails, try "Month yyyy" format (will default to 1st of month)
+  if (is.na(parsed)) {
+    parsed <- my(date_string, quiet = TRUE)
+  }
+  
+  # If still fails, check if it's just a year (4 digits)
+  if (is.na(parsed)) {
+    if (grepl("^\\d{4}$", date_string)) {
+      # For year-only entries, default to January 1st of that year
+      parsed <- ymd(paste0(date_string, "-01-01"), quiet = TRUE)
+    }
+  }
+  
+  # Fix 2-digit year issues - if year > 1950, assume it's 1800s
+  if (!is.na(parsed)) {
+    year_val <- year(parsed)
+    if (year_val > 1950) {
+      parsed <- parsed - years(100)
+    }
+  }
+  
+  return(parsed)
+}
+
+dc$birth_date_clean <- sapply(dc$birth_date, standardize_birth_date)
+dc$birth_date_clean <- as.Date(dc$birth_date_clean, origin = "1970-01-01")
+dc <- dc |> 
+  mutate(birth_year = year(birth_date_clean))
+```
+
+
+## Check for duplicate names
+```{r}
+
+dc |> 
+  count(name) |> 
+  filter(n > 1)
+
+#James Evans. One entry #39 and the other #199. Both are separate
+```
+
+fix
+occupation
+age = approx_age,
+death_date = death_date_clean
+birth_place = birth_place_city_or_town_and_state_write_it_as_bowie_md
+
+#checking birth dates
+
+```{r}
+bd <- dc |> 
+  select(name, birth_date, birth_date_clean, birth_year)
+
+death <- dc |> 
+  select(name, death_date, death_date1, death_date_clean, death_year, death_decade)
+
+```
+
+
+
+## Clean, create final dataset for GitHub
+```{r}
+dc_clean <- dc |> 
+  rename(occupation = occupation_relation_was_disease_or_injury_in_any_way_related_to_occupation_of_deceased, age = approx_age, birth_place = birth_place_city_or_town_and_state_write_it_as_bowie_md, time_residing_death_place = place_of_death_length_of_residence_in_city_or_town_where_death_occurred, external_causes_violence = external_causes_if_death_was_due_to_external_causes_violence_fill_in_also_the_following, death_in_home_work = location_of_death_specify_whether_injury_occurred_in_industry_in_home_or_in_public_place, official_signature = name_of_person_who_signed_it) |> 
+  select(personal_id, facility, name, first, last, occupation, cause_of_death, primary_death, secondary_death, age, death_date_clean, birth_date_clean, death_year, death_decade, birth_year, birth_place, sex, color_or_race, place_of_death_county, time_residing_death_place, external_causes_violence, death_in_home_work, informant_cheltenham_official, official_signature, combined_notes) |> 
+  rename(death_date = death_date_clean, birth_date = birth_date_clean)
+  
+write_csv(dc_clean, ("input/master_dc_data_dec_8.csv"))
+```
+
+
+
+# Data import
+
+#rsw change
+```{r}
+
+dc <- read_csv("https://raw.githubusercontent.com/wellsdata/Cheltenham/refs/heads/main/input/master_dc_data_dec_8.csv")
+
+
+```
+
+
+
+
+#------------------------------------------------------------------------------
+# Primary Cause of Death
+#------------------------------------------------------------------------------
+
+```{r}
+# Combine cause of death columns, cleaning up semicolons and "NA" entries
+dc <- dc |> 
+   mutate(primary_death_update = primary_death) |> 
+   mutate(primary_death_update= str_replace_all(primary_death_update, "(?i) & ", "; ")) |>
+  mutate(primary_death_update= str_replace_all(primary_death_update, "NA", "")) |> 
+  #removing pesky leading, trailing semicolons
+  mutate(primary_death_update= str_remove_all(primary_death_update, "^;+|;+$")) |> 
+  mutate(primary_death_update= str_remove_all(primary_death_update, "^[;\\s]+|[;\\s]+$")) |> 
+  mutate(primary_death_update= str_replace_all (primary_death_update, "blank", "")) |> 
+  mutate(primary_death_update= na_if(primary_death_update, "")) 
+
+```
+
+# Primary causes of death
+
+```{r}
+all_causes <- dc %>%
+  select(primary_death_update) %>%
+  filter(!is.na(primary_death_update)) %>%
+  distinct() %>%
+  arrange(primary_death_update)
+#86 primary causes
+#for all 114 different causes and groupings Dec 5
+```
+
+# Primary categories
+
+```{r}
+
+dc <- dc %>% 
+  mutate(
+    tuberculosis = str_detect(primary_death_update, "(?i)tubercul|phthisis|pthisis|consumption|terberculosis"),
+    pneumonia = str_detect(primary_death_update, "(?i)pneumonia"), 
+    typhoid = str_detect(primary_death_update, "(?i)typhoid"),
+    asthma = str_detect(primary_death_update, "(?i)asthma"),
+    meningitis = str_detect(primary_death_update, "(?i)meningitis"),
+    peritonitis = str_detect(primary_death_update, "(?i)peritonit"),
+    cardiac_issues = str_detect(primary_death_update, "(?i)cardiac|heart failure|heart trouble|mitral"),
+    gastric_ulcer = str_detect(primary_death_update, "(?i)gastric.*ulcer|ulcer.*gastric|gastroenteritis"),
+    encephalitis = str_detect(primary_death_update, "(?i)encephalitis"),
+    malaria = str_detect(primary_death_update, "(?i)malaria"),
+    asphyxia = str_detect(primary_death_update, "(?i)asphyxia"),
+    exhaustion = str_detect(primary_death_update, "(?i)exhaust"),  # Catches both exhaustion and exhaution typo
+    asthenia = str_detect(primary_death_update, "(?i)asthenia"),
+    lung_disease = str_detect(primary_death_update, "(?i)lungs|oedema of lungs"),
+    hemorrhage = str_detect(primary_death_update, "(?i)hemo?rrhage|hemm(?!ophilia)"),  # Fixed to exclude hemophilia
+    influenza = str_detect(primary_death_update, "(?i)influenza"),
+    nephritis = str_detect(primary_death_update, "(?i)nephritis"),
+    septicemia = str_detect(primary_death_update, "(?i)septic"),
+    diptheria = str_detect(primary_death_update, "(?i)diptheria"),
+    drowning = str_detect(primary_death_update, "(?i)drowning"),
+    appendicitis = str_detect(primary_death_update, "(?i)appendicitis"),
+    spine_disease = str_detect(primary_death_update, "(?i)disease of the spine|spinal"),
+    blood_condition = str_detect(primary_death_update, "(?i)leusocythacenia|leuko|hemophilia"),  # NEW - for leukemia variations and hemophilia
+    violent_injury = str_detect(primary_death_update, "(?i)wound.*groin|brick|Brain|bullet|shot|stab*|wound.*heart"), 
+     premature_birth = str_detect(primary_death_update,"(?i)Prematurely 6 weeks gestation|Immaturely \\(6 month baby\\)"), # NEW - premature birth
+    no_details = is.na(primary_death_update) | str_detect(primary_death_update, "(?i)\\bNA\\b|N/A|missing|illegible|information|no_details|unknown")
+  )
+```
+
+### Calculate death causes by year
+
+```{r}
+# Summarize causes of death by year in long format - UPDATED with new categories
+summary_long <- dc |> 
+  group_by(death_year) |> 
+  summarise(
+    tuberculosis = sum(tuberculosis, na.rm = TRUE),
+    pneumonia = sum(pneumonia, na.rm = TRUE),
+    typhoid = sum(typhoid, na.rm = TRUE),
+    asthma = sum(asthma, na.rm = TRUE),
+    meningitis = sum(meningitis, na.rm = TRUE),
+    peritonitis = sum(peritonitis, na.rm = TRUE),
+    cardiac_issues = sum(cardiac_issues, na.rm = TRUE),
+    exhaustion = sum(exhaustion, na.rm = TRUE),
+    gastric_ulcer = sum(gastric_ulcer, na.rm = TRUE),
+    encephalitis = sum(encephalitis, na.rm = TRUE),
+    malaria = sum(malaria, na.rm = TRUE),
+    asphyxia = sum(asphyxia, na.rm = TRUE),
+    asthenia = sum(asthenia, na.rm = TRUE),
+    lung_disease = sum(lung_disease, na.rm = TRUE),
+    hemorrhage = sum(hemorrhage, na.rm = TRUE),
+    influenza = sum(influenza, na.rm = TRUE),
+    nephritis = sum(nephritis, na.rm = TRUE),
+    septicemia = sum(septicemia, na.rm = TRUE),
+    diptheria = sum(diptheria, na.rm = TRUE),
+    drowning = sum(drowning, na.rm = TRUE),
+    appendicitis = sum(appendicitis, na.rm = TRUE),
+    spine_disease = sum(spine_disease, na.rm = TRUE),
+    blood_condition = sum(blood_condition, na.rm = TRUE),
+    premature_birth = sum(premature_birth, na.rm = TRUE),
+    violent_injury = sum(violent_injury, na.rm = TRUE),
+    no_details = sum(no_details, na.rm = TRUE)
+  ) |> 
+  pivot_longer(cols = -death_year, 
+               names_to = "cause", 
+               values_to = "count")
+```
+
+# Death Categories summary
+```{r}
+death_categories_summary <- summary_long |> 
+  group_by(cause) |> 
+  summarise(total = sum(count)) |>
+  arrange(desc(total))
+
+#write_csv(death_categories_summary, "output/primary_death_categories_summary_dec5.csv")
+
+summary_long |> 
+  group_by(cause) |> 
+  summarise(total = sum(count)) |>
+  arrange(desc(total)) |>
+  datatable(caption = "Primary Causes of Death, Cheltenham, Jessup",
+            options = list(pageLength = 50))
+```
+
+
+# Primary cause Higher level categories
+```{r}
+# Take the Higher Level Categories and create 9 new columns, one per category 
+
+dc <- dc %>% 
+  mutate(
+    cat_respiratory = tuberculosis | pneumonia | asthma | influenza | asphyxia | lung_disease | str_detect(primary_death_update, "(?i)Suffocation"),
+    cat_infection = meningitis | peritonitis | encephalitis | malaria | septicemia | diptheria,
+    cat_intestinal_kidney = typhoid | gastric_ulcer | appendicitis | nephritis | str_detect(primary_death_update, "(?i)Chronic Nephritis|acute parenchymatous nephritis anasarca | stomach |Bright's disease"),
+    cat_cardiac = cardiac_issues,
+    cat_violent = violent_injury,
+    cat_trauma = hemorrhage | drowning,
+    cat_premature_birth = premature_birth,
+    cat_exhaustion = exhaustion | asthenia,
+    cat_other =  blood_condition  | spine_disease |               str_detect(primary_death_update, "(?i)No further information given | Spinal Paralysis"),
+    cat_no_details = no_details
+  )
+```
+
+
+## Check higher level primary categories totals
+```{r}
+# Summing higher level categories totals
+primary_summary <- dc %>%
+  summarise(
+    cat_respiratory = sum(cat_respiratory, na.rm = TRUE),
+    cat_infection = sum(cat_infection, na.rm = TRUE),
+    cat_intestinal_kidney = sum(cat_intestinal_kidney, na.rm = TRUE),
+    cat_cardiac = sum(cat_cardiac, na.rm = TRUE),
+    cat_violent = sum(cat_violent, na.rm = TRUE),
+    cat_trauma = sum(cat_trauma, na.rm = TRUE),
+    cat_exhaustion = sum(cat_exhaustion, na.rm = TRUE),
+    cat_other = sum(cat_other, na.rm = TRUE),
+    cat_premature_birth = sum(cat_premature_birth, na.rm = TRUE),
+    cat_no_details = sum(cat_no_details, na.rm = TRUE)
+  ) %>%
+  pivot_longer(everything(), names_to = "category", values_to = "count") %>%
+  arrange(desc(count))
+primary_summary 
+```
+
+
+### Table: Primary Cause of Death Summary
+```{r}
+primary_summary |> 
+  mutate(category = str_to_sentence(str_remove_all(category, "cat_"))) |> 
+  rename(Primary_Cause_Death = category, Total = count) |> 
+  mutate(Primary_Cause_Death = fct_reorder(Primary_Cause_Death, Total)) |> 
+  ggplot(aes(x = Total, y = Primary_Cause_Death, fill = Total)) +
+  geom_col(position = "dodge") +
+  theme(legend.position = "none") +
+  geom_text(aes(label = (Total)), size = 4, hjust =-.1) +
+  scale_x_continuous(breaks = seq(0, 130, 10), limits=c(0, 130)) +
+  labs(title = "Summary Primary Causes of Death at Cheltenham, Jessup",
+       subtitle = "From 1880-1941",
+       caption = "Graphic by Rob Wells, 12-5-2025",
+       y = "",
+       x = "")
+  
+
+```
+
+
+#----------------------------------------------------#
+
+### **ALL** Causes of death
+
+```{r}
+# Combine cause of death columns, cleaning up semicolons and "NA" entries
+dc2 <- dc |> 
+  # mutate(cause_death_update = paste(cause_of_death, if_cause_of_death_different_put_that_here, sep = "; ")) |> 
+   mutate(cause_death_update = cause_of_death) |> 
+   mutate(cause_death_update = str_replace_all(cause_death_update, "(?i) & ", "; ")) |>
+  mutate(cause_death_update = str_replace_all(cause_death_update, "NA", "")) |> 
+  #removing pesky leading, trailing semicolons
+  mutate(cause_death_update = str_remove_all(cause_death_update, "^;+|;+$")) |> 
+  mutate(cause_death_update = str_remove_all(cause_death_update, "^[;\\s]+|[;\\s]+$")) |> 
+  mutate(cause_death_update = str_replace_all (cause_death_update, "blank", "")) |> 
+  mutate(cause_death_update = na_if(cause_death_update, "")) 
+
+```
+
+
+# Categorize causes of death
+
+```{r}
+all_causes_dc2 <- dc2 %>%
+  select(cause_death_update) %>%
+  filter(!is.na(cause_death_update)) %>%
+  distinct() %>%
+  arrange(cause_death_update)
+#114 different causes and groupings Dec 5
+```
+
+```{r}
+
+dc2 <- dc2 %>% 
+  mutate(
+    tuberculosis = str_detect(cause_death_update, "(?i)tubercul|phthisis|pthisis|consumption|terberculosis"),
+    pneumonia = str_detect(cause_death_update, "(?i)pneumonia"), 
+    typhoid = str_detect(cause_death_update, "(?i)typhoid"),
+    asthma = str_detect(cause_death_update, "(?i)asthma"),
+    meningitis = str_detect(cause_death_update, "(?i)meningitis"),
+    peritonitis = str_detect(cause_death_update, "(?i)peritonit"),
+    cardiac_issues = str_detect(cause_death_update, "(?i)cardiac|heart failure|heart trouble|mitral"),
+    gastric_ulcer = str_detect(cause_death_update, "(?i)gastric.*ulcer|ulcer.*gastric|gastroenteritis"),
+    encephalitis = str_detect(cause_death_update, "(?i)encephalitis"),
+    malaria = str_detect(cause_death_update, "(?i)malaria"),
+    asphyxia = str_detect(cause_death_update, "(?i)asphyxia"),
+    exhaustion = str_detect(cause_death_update, "(?i)exhaust"),  # Catches both exhaustion and exhaution typo
+    asthenia = str_detect(cause_death_update, "(?i)asthenia"),
+    lung_disease = str_detect(cause_death_update, "(?i)lungs|oedema of lungs"),
+    hemorrhage = str_detect(cause_death_update, "(?i)hemo?rrhage|hemm(?!ophilia)"),  # Fixed to exclude hemophilia
+    influenza = str_detect(cause_death_update, "(?i)influenza"),
+    nephritis = str_detect(cause_death_update, "(?i)nephritis"),
+    septicemia = str_detect(cause_death_update, "(?i)septic"),
+    diptheria = str_detect(cause_death_update, "(?i)diptheria"),
+    drowning = str_detect(cause_death_update, "(?i)drowning"),
+    appendicitis = str_detect(cause_death_update, "(?i)appendicitis"),
+    spine_disease = str_detect(cause_death_update, "(?i)disease of the spine|spinal"),
+    blood_condition = str_detect(cause_death_update, "(?i)leusocythacenia|leuko|hemophilia"),  # NEW - for leukemia variations and hemophilia
+    violent_injury = str_detect(cause_death_update, "(?i)wound.*groin|brick|Brain|bullet|shot|stab*|wound.*heart"), 
+     premature_birth = str_detect(cause_death_update,"(?i)Prematurely 6 weeks gestation|Immaturely \\(6 month baby\\)"), 
+    illegible_entry = str_detect(cause_death_update,"(?i)illegible"), # NEW - premature birth
+    no_details = is.na(cause_death_update) | str_detect(cause_death_update, "(?i)\\bNA\\b|N/A|\\bmissing\\b|no_details|\\bunknown\\b")
+  )
+```
+
+### Calculate death causes by year
+
+```{r}
+# Summarize causes of death by year in long format - UPDATED with new categories
+summary_long_dc2 <- dc2 |> 
+  group_by(death_year) |> 
+  summarise(
+    tuberculosis = sum(tuberculosis, na.rm = TRUE),
+    pneumonia = sum(pneumonia, na.rm = TRUE),
+    typhoid = sum(typhoid, na.rm = TRUE),
+    asthma = sum(asthma, na.rm = TRUE),
+    meningitis = sum(meningitis, na.rm = TRUE),
+    peritonitis = sum(peritonitis, na.rm = TRUE),
+    cardiac_issues = sum(cardiac_issues, na.rm = TRUE),
+    exhaustion = sum(exhaustion, na.rm = TRUE),
+    gastric_ulcer = sum(gastric_ulcer, na.rm = TRUE),
+    encephalitis = sum(encephalitis, na.rm = TRUE),
+    malaria = sum(malaria, na.rm = TRUE),
+    asphyxia = sum(asphyxia, na.rm = TRUE),
+    asthenia = sum(asthenia, na.rm = TRUE),
+    lung_disease = sum(lung_disease, na.rm = TRUE),
+    hemorrhage = sum(hemorrhage, na.rm = TRUE),
+    influenza = sum(influenza, na.rm = TRUE),
+    nephritis = sum(nephritis, na.rm = TRUE),
+    septicemia = sum(septicemia, na.rm = TRUE),
+    diptheria = sum(diptheria, na.rm = TRUE),
+    drowning = sum(drowning, na.rm = TRUE),
+    appendicitis = sum(appendicitis, na.rm = TRUE),
+    spine_disease = sum(spine_disease, na.rm = TRUE),
+    blood_condition = sum(blood_condition, na.rm = TRUE),
+    premature_birth = sum(premature_birth, na.rm = TRUE),
+    violent_injury = sum(violent_injury, na.rm = TRUE),
+    illegible_entry = sum(illegible_entry, na.rm = TRUE),
+    no_details = sum(no_details, na.rm = TRUE)
+  ) |> 
+  pivot_longer(cols = -death_year, 
+               names_to = "cause", 
+               values_to = "count")
+```
+
+# Death Categories summary
+```{r}
+dc2_summary <- summary_long_dc2 |> 
+  group_by(cause) |> 
+  summarise(total = sum(count)) |>
+  arrange(desc(total))
+
+summary_long_dc2 |> 
+  group_by(cause) |> 
+  summarise(total = sum(count)) |>
+  arrange(desc(total)) |>
+  datatable(caption = "All Causes of Death, Cheltenham, Jessup",
+            options = list(pageLength = 50))
+```
+
+
+# Higher level categories
+```{r}
+# Take the Higher Level Categories and create 9 new columns, one per category 
+
+dc2 <- dc2 %>% 
+  mutate(
+    cat_respiratory = tuberculosis | pneumonia | asthma | influenza | asphyxia | lung_disease | str_detect(cause_death_update, "(?i)Suffocation"),
+    cat_infection = meningitis | peritonitis | encephalitis | malaria | septicemia | diptheria,
+    cat_intestinal_kidney = typhoid | gastric_ulcer | appendicitis | nephritis | str_detect(cause_death_update, "(?i)Chronic Nephritis|acute parenchymatous nephritis anasarca | stomach |Bright's disease"),
+    cat_cardiac = cardiac_issues,
+    cat_violent = violent_injury,
+    cat_trauma = hemorrhage | drowning,
+    cat_premature_birth = premature_birth,
+    cat_exhaustion = exhaustion | asthenia,
+    cat_other =  blood_condition  | spine_disease | drowning |             str_detect(cause_death_update, "(?i)No further information given | Spinal Paralysis"),
+    cat_no_details = no_details | illegible_entry
+  )
+```
+
+# Data quality checks
+
+## Check higher level categories totals
+```{r}
+# Summing higher level categories totals
+summary_cat_dc2_long <- dc2 %>%
+  summarise(
+    cat_respiratory = sum(cat_respiratory, na.rm = TRUE),
+    cat_infection = sum(cat_infection, na.rm = TRUE),
+    cat_intestinal_kidney = sum(cat_intestinal_kidney, na.rm = TRUE),
+    cat_cardiac = sum(cat_cardiac, na.rm = TRUE),
+    cat_violent = sum(cat_violent, na.rm = TRUE),
+    cat_trauma = sum(cat_trauma, na.rm = TRUE),
+    cat_exhaustion = sum(cat_exhaustion, na.rm = TRUE),
+    cat_other = sum(cat_other, na.rm = TRUE),
+    cat_premature_birth = sum(cat_premature_birth, na.rm = TRUE),
+    cat_no_details = sum(cat_no_details, na.rm = TRUE)
+  ) %>%
+  pivot_longer(everything(), names_to = "category", values_to = "count") %>%
+  arrange(desc(count))
+summary_cat_dc2_long 
+```
+
+
+```{r}
+ dc2 %>%
+  group_by(death_year) %>%
+  summarise(
+    cat_respiratory = sum(cat_respiratory, na.rm = TRUE),
+    cat_infection = sum(cat_infection, na.rm = TRUE),
+    cat_intestinal_kidney = sum(cat_intestinal_kidney, na.rm = TRUE),
+    cat_cardiac = sum(cat_cardiac, na.rm = TRUE),
+    cat_violent = sum(cat_violent, na.rm = TRUE),
+    cat_trauma = sum(cat_trauma, na.rm = TRUE),
+    cat_exhaustion = sum(cat_exhaustion, na.rm = TRUE),
+    cat_other = sum(cat_other, na.rm = TRUE),
+    cat_premature_birth = sum(cat_premature_birth, na.rm = TRUE),
+    cat_no_details = sum(cat_no_details, na.rm = TRUE)
+  ) %>%
+  pivot_longer(-death_year, names_to = "category", values_to = "count") %>%
+  arrange(death_year, desc(count))
+# summary_cat_dc2_long
+```
+
+
+## Check for records with no category assigned
+```{r}
+# Find records that don't match any higher level category
+no_cat <- dc2 %>%
+  filter(!cat_respiratory & !cat_infection & !cat_intestinal_kidney & 
+         !cat_cardiac & !cat_trauma & !cat_exhaustion & !cat_other & !cat_no_details & !cat_violent & !cat_premature_birth) %>%
+  select(name, cause_death_update, tuberculosis:no_details)
+```
+
+
+
+## Check cardiac
+```{r}
+
+cardiac <- dc2 |> 
+  filter(cardiac_issues=="TRUE") |> 
+  select(facility, personal_id, name, death_date, death_year, cause_of_death, cardiac_issues, age)
+
+cardiac |> 
+  group_by(death_year) |> 
+  count() |> 
+ ggplot(aes(x = death_year, y = n, fill = n)) +
+  geom_col(position = "dodge") +
+  theme(legend.position = "none") +
+  labs(title = "Cardiac Related Deaths at Cheltenham, Jessup",
+       subtitle = "From 1880-1941",
+       caption = "Graphic by Rob Wells, 12-4-2025",
+       y="Number",
+       x="Year")
+
+```
+
+#---------------------------------------------------------
+#---Graphics----------------------------------------------
+#---------------------------------------------------------
+
+
+
+### Tuberculosis by year
+```{r}
+
+summary_long_dc2 |> 
+  filter(cause == "tuberculosis") |> 
+  group_by(death_year) |> 
+ ggplot(aes(x = death_year, y = count, fill = count)) +
+  geom_col(position = "dodge") +
+  theme(legend.position = "none") +
+  labs(title = "Tuberculosis Deaths at Cheltenham, Jessup",
+       subtitle = "All mentions of TB on death certificates, from 1877-1941",
+       caption = "Graphic by Rob Wells, 12-7-2025",
+       y="Number",
+       x="")
+
+
+```
+
+
+
+#1 Broad category by year, all causes
+
+Ruiz and Wells
+```{r}
+#RR was here
+# Summarize by broad category and year
+# count_cat_dc2_long  <- summary_long_dc2 %>%
+#   group_by(death_year, cause) %>%
+#   summarise(total_count = sum(count, na.rm = TRUE), .groups = "drop") %>%
+#   filter(!is.na(cause))
+
+summary_cat_dc2_long <- dc2 %>%
+  group_by(death_year) %>%
+  summarise(
+    cat_respiratory = sum(cat_respiratory, na.rm = TRUE),
+    cat_infection = sum(cat_infection, na.rm = TRUE),
+    cat_intestinal_kidney = sum(cat_intestinal_kidney, na.rm = TRUE),
+    cat_cardiac = sum(cat_cardiac, na.rm = TRUE),
+    cat_violent = sum(cat_violent, na.rm = TRUE),
+    cat_trauma = sum(cat_trauma, na.rm = TRUE),
+    cat_exhaustion = sum(cat_exhaustion, na.rm = TRUE),
+    cat_other = sum(cat_other, na.rm = TRUE),
+    cat_premature_birth = sum(cat_premature_birth, na.rm = TRUE),
+    cat_no_details = sum(cat_no_details, na.rm = TRUE)
+  ) %>%
+  pivot_longer(-death_year, names_to = "category", values_to = "count") %>%
+  arrange(death_year, desc(count)) |> 
+  mutate(category = str_remove(category, "cat_")) |> 
+  mutate(category = str_replace_all(category, "_", " ")) |> 
+  mutate(category = str_to_title(category))
+
+
+
+# Create bar chart
+ggplot(summary_cat_dc2_long, aes(x = death_year, y = count, fill = category)) +
+  geom_col(position = "stack") +
+    scale_x_continuous(breaks= seq(1870,1950, 5)) +
+  labs(title = "All Causes of Death by Category at Cheltenham, Jessup, Hickey",
+       subtitle = "Totals include multiple entries for individuals with more than one cause of death.",
+       caption = "Graphic by Raphael Romero Ruiz & Rob Wells, 12-7-2025",
+       y = "Total Count",
+       x = "",
+       fill = "Category") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 9),
+        legend.title = element_text(size = 10),
+        legend.key.size = unit(0.4, "cm"),
+        plot.title = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(size = 8),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_legend(nrow = 1, byrow = TRUE))
+```
+
+
+# X - Facet Graphic: Causes of Death Over Time
+Sophie and Zaka
+```{r}
+##SH: LET ME KNOW IF THIS LOOKS, AND I CAN GO BACK AND CHANGE IT IF NEED BE.
+
+# Define custom colors for specific categories
+custom_colors <- c(
+  "Respiratory" = "#4E9A8A",
+  "Infection" = "#D4AF37", 
+  "Intestinal Kidney" = "#7B68AA",
+  "Cardiac" = "#D63447",
+  "Violent" = "#3A7CA5",
+  "Trauma" = "#F57C00",
+  "Exhaustion" = "#7CB342",
+  "Premature Birth" = "#9E9E9E",
+  "No Details" = "#8E44AD"
+)
+
+# Calculate max values per category to determine which need fixed scales
+category_max <- summary_cat_dc2_long |>
+  mutate(category = str_replace_all(category, "_", " ")) |> 
+  mutate(category = str_to_title(category)) |>
+  filter(category != "Other", !is.na(death_year), !is.na(count)) |>
+  group_by(category) |>
+  summarise(max_count = max(count, na.rm = TRUE), .groups = "drop")
+
+# Create plot data with y_max column for fixed scaling
+plot_data <- summary_cat_dc2_long |>
+  mutate(category = str_replace_all(category, "_", " ")) |> 
+  mutate(category = str_to_title(category)) |>
+  filter(category != "Other", !is.na(death_year), !is.na(count)) |>
+  left_join(category_max, by = "category") |>
+  mutate(y_limit = if_else(max_count <= 2, 2, NA_real_)) |>
+  group_by(category) |>
+  mutate(total_count = sum(count, na.rm = TRUE)) |>
+  ungroup() |>
+  mutate(category = fct_reorder(category, total_count, .desc = TRUE))
+
+plot_data |>
+  ggplot(aes(x = death_year, y = count, fill = category)) +
+  geom_col(alpha = 0.85) +
+  facet_wrap(~ category, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = custom_colors) +
+  scale_x_continuous(breaks = seq(1870, 1940, by = 10)) +
+  scale_y_continuous(
+    breaks = function(x) {
+      max_val <- max(x, na.rm = TRUE)
+      if (max_val <= 2) {
+        0:2
+      } else {
+        unique(floor(pretty(x, n = 5)))
+      }
+    },
+    expand = expansion(mult = c(0, 0.1))
+  ) +
+  # Add manual y-axis limits using geom_blank for categories with max <= 2
+  geom_blank(data = plot_data |> filter(!is.na(y_limit)), 
+             aes(y = y_limit)) +
+ labs(
+    title = "Causes of Death Over Time: Cheltenham, Jessup",
+    subtitle = "Each disease shown in separate panel, 1880-1941",
+    caption = "Note: Six deaths categorized as 'Other' (blood conditions, spine disease) not shown.\nGraphic by Sophia Hernandez-Piña, Zaka Hossain & Raphael Romero Ruiz, Dec 9 2025",
+    x = "Year",
+    y = "Number of Deaths"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0),
+    plot.subtitle = element_text(size = 10, hjust = 0, color = "gray40"),
+    plot.caption = element_text(hjust = 0, color = "gray50", size = 8),
+    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 8),
+    axis.text.y = element_text(size = 7),
+    strip.text = element_text(face = "bold", size = 9),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+ggsave("causes_death_facet_dec_9.png", width = 10, height = 6, dpi = 300)
+```
+
+### 2. Infectious Diseases Over Time
+Sophie and Zaka
+```{r}
+summary_long_dc2 |>
+  filter(cause %in% c("tuberculosis", "pneumonia", "typhoid", "meningitis", "influenza")) |>
+  mutate(decade = floor(death_year / 10) * 10) |>
+  group_by(decade, cause) |>
+  summarise(count = sum(count, na.rm = TRUE), .groups = "drop") |>
+  # Clean up cause names - remove underscores and capitalize
+  mutate(cause = str_to_title(str_replace_all(cause, "_", " "))) |>
+  ggplot(aes(x = decade, y = count, fill = cause)) +
+  geom_col(position = "dodge", alpha = 0.9) +
+  # Highlight the 1920 decade (1920-1929) where Spanish Flu deaths appear
+  annotate("rect", xmin = 1917.5, xmax = 1922.5, ymin = -Inf, ymax = Inf, 
+           alpha = 0.15, fill = "red") +
+  annotate("text", x = 1920, y = 18, 
+           label = "Spanish Flu\nPandemic\n(1918-1920)", size = 3, fontface = "italic", color = "darkred") +
+  # Add horizontal arrow pointing at TB bar in 1910
+  annotate("segment", x = 1900, y = 25, xend = 1908, yend = 25,
+           arrow = arrow(length = unit(0.3, "cm")), color = "darkblue", linewidth = 0.8) +
+  annotate("text", x = 1890, y = 25, 
+           label = "Tuberculosis was a leading cause\nof death in the U.S.\nduring this period", 
+           size = 3.5, fontface = "italic", color = "darkblue", hjust = 0) +
+  scale_fill_brewer(palette = "Set1") +
+  scale_x_continuous(breaks = seq(1880, 1940, by = 10),
+                     limits = c(1875, 1945),
+                     expand = expansion(mult = 0.02)) +
+  labs(
+    title = "Infectious Disease Deaths at Cheltenham, Jessup, Hickey",
+    subtitle = "Tracking major infectious diseases from 1877-1941, aggregated by decade",
+    caption = "Graphic by Sophia Hernandez-Piña and Zaka Hossain",
+    x = "",
+    y = "Number of Deaths",
+    fill = "Disease"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8),
+        legend.key.size = unit(0.3, "cm"),
+        plot.title = element_text(face = "bold", size = 16),
+        plot.subtitle = element_text(size = 11, color = "gray40"),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_legend(nrow = 1, byrow = TRUE))
+ggsave("infectious_disease_deaths_dec_9.png", width = 10, height = 6, dpi = 300)
+```
+
+
+## Mapping place of origin
+
+```{r}
+
+dc |> 
+  mutate(origin = birth_place) |> 
+  count(origin) |> 
+  arrange(desc(n))
+
+
+```
+
+### clean origin
+
+```{r}
+dc <- dc |> 
+  mutate(origin = str_squish(birth_place)) |> 
+  mutate(county_origin = case_when(
+         str_detect(origin, "(?i)^md\\.?$") ~ "Maryland", 
+         str_detect(origin, "(?i)baltimore county") ~ "Baltimore County",  # Check this FIRST
+         str_detect(origin, "(?i)baltimore") ~ "Baltimore city",
+         str_detect(origin, "(?i)easton") ~ "Talbot County",
+         str_detect(origin, "(?i)frederick") ~ "Frederick County",
+         str_detect(origin, "(?i)Prince George's County") ~ "Prince George's County",
+         str_detect(origin, "(?i)Prince Georges County, Md.") ~ "Prince George's County",
+         str_detect(origin, "(?i)Seat Pleasant") ~ "Prince George's County",
+         str_detect(origin, "(?i)Cheltenham") ~ "Prince George's County",
+         str_detect(origin, "(?i)unknown") ~ "Unknown",
+         str_detect(origin, "(?i)Centreville") ~ "Queen Anne's County",
+         str_detect(origin, "(?i)church hill") ~ "Queen Anne's County",
+         str_detect(origin, "(?i)Salisbury") ~ "Wicomico County",
+         str_detect(origin, "(?i)Pocomoke") ~ "Worcester County",
+         str_detect(origin, "(?i)Anne Arrundel County") ~ "Anne Arundel County",
+         str_detect(origin, "(?i)Chaptico, St. Marys County, Md.") ~ "St. Mary's County",
+         str_detect(origin, "(?i)Dunkirk, Md.") ~ "Calvert County",
+         str_detect(origin, "(?i)Elkton, Md.") ~ "Cecil County",
+        str_detect(origin, "(?i)Ellicott City MD") ~ "Howard County",
+        str_detect(origin, "(?i)Ellicott") ~ "Howard County",
+        str_detect(origin, "(?i)Harford County") ~ "Harford County",
+        str_detect(origin, "(?i)Illegible") ~ "Unknown",
+        str_detect(origin, "(?i)Jessup") ~ "Anne Arundel County", 
+        str_detect(origin, "(?i)oakland") ~ "Garrett County",
+        str_detect(origin, "(?i)Md. former residence Pocomoke, Md.") ~ "Worcester County",
+        # Counties explicitly mentioned
+         str_detect(origin, "(?i)prince george") ~ "Prince George's County",
+         str_detect(origin, "(?i)anne arr") ~ "Anne Arundel County",  # Catches misspelling
+         str_detect(origin, "(?i)harford county") ~ "Harford County",
+         str_detect(origin, "(?i)chaptico") ~ "St. Mary's County",
+       # str_detect(origin, "St.Marys County") ~ "St. Mary's County",
+          # Non-Maryland locations
+         str_detect(origin, "(?i)(^va\\.?$|virginia|^w\\.? ?va|washington.*d\\.?c|^del|^dc$|florida|^woodbine|^alabama)") ~ "Outside Maryland",
+        str_detect(origin, "(?i)Not known") ~ "Unknown",
+        str_detect(origin, "(?i)N/A") ~ "Unknown",
+        str_detect(origin, "(?i)na") ~ "Unknown",
+        str_detect(origin, "(?i)pinna") ~ "Unknown",
+        str_detect(origin, "(?i)missing") ~ "Unknown",
+       str_detect(origin, "Pinna former residence Jamestown, Md.") ~ "Anne Arundel County",
+          is.na(origin) ~ "Unknown",
+               TRUE ~ origin
+         )) |> 
+      mutate(county_origin = str_remove_all(county_origin, ", Md.")) 
+```
+
+
+```{r}
+dc |> 
+  count(county_origin) |> 
+  arrange(desc(n))
+
+
+```
+
+Map
+```{r}
+library(tidycensus)
+#subset the geometry
+map <- get_acs(geography = "county", 
+              variables = c(number_households = "B19001_001", median_income = "B19013_001"), 
+               state = "MD", 
+               year = 2020, geometry = TRUE) %>% 
+  mutate(NAME = str_remove_all(NAME, ", Maryland")) |> 
+  select(GEOID, NAME) |> 
+  distinct()
+
+#join geocoordinates with baltcity
+dc_map <- dc |>  
+ inner_join(map, by=c("county_origin"="NAME"))
+
+
+```
+#save map file
+```{r}
+
+#saveRDS(dc_map, "output/dc_map_dec_8.rds")
+
+```
+
+```{r}
+dc_map <- readRDS("output/dc_map_dec_8.rds")
+
+dc_map <- dc_map |> 
+  st_as_sf() |> 
+  sf::st_transform(4326) |> 
+  add_count(county_origin, name = "county_count")
+```
+
+
+
+
+# Updated map
+```{r}
+# Use colorBin for better visual differentiation with distinct breaks
+pal <- colorBin(
+  palette = c("#FFEDA0", "#FED976", "#FEB24C", "#FD8D3C", "#FC4E2A", "#E31A1C", "#BD0026", "#800026"),  # More vibrant orange-red gradient
+  domain = dc_map$county_count,
+  bins = c(0, 1, 2, 3, 5, 8, 12, 20, Inf),  # Custom bins for better differentiation
+  na.color = "transparent"
+)
+
+# Count unknowns for legend
+unknown_count <- sum(dc$county_origin == "Unknown", na.rm = TRUE)
+outside_md_count <- sum(dc$county_origin == "Outside Maryland", na.rm = TRUE)
+
+# Create HTML table with actual counts
+table_html <- paste0(
+  '<table style="background-color: white; padding: 10px; border: 2px solid gray;">',
+  '<tr><th style="text-align: left; padding: 5px;">Origin</th>',
+  '<th style="text-align: right; padding: 5px;">Count</th></tr>',
+  '<tr><td style="padding: 5px;">Unknown</td><td style="text-align: right; padding: 5px;">', unknown_count, '</td></tr>',
+  '<tr><td style="padding: 5px;">Outside Maryland</td><td style="text-align: right; padding: 5px;">', outside_md_count, '</td></tr>',
+  '</table>'
+)
+
+# Create headline
+headline_html <- paste0(
+  '<div style="background-color: white; padding: 10px; border: 2px solid #333; border-radius: 5px; box-shadow: 0 0 10px rgba(0,0,0,0.3); text-align: center;">',
+  '<h3 style="margin: 0; color: #333;">Birth Places of Deceased Boys at Maryland Institutions</h3>',
+   '<h4 style="margin: 5px 0 0 0; color: #666; font-weight: normal;">Based on limited data from death certificates</h4>',
+  '</div>'
+)
+
+leafMap <- leaflet(data = dc_map) %>%
+  addProviderTiles(providers$Esri.WorldStreetMap) %>%
+  addControl(html = headline_html, position = "topright") %>%
+  addPolygons(
+    fillColor = ~pal(county_count),
+    color = "black",  # Black borders
+    weight = 2,
+    fillOpacity = 0.7,
+    label = ~paste0("County: ", county_origin, " | Count: ", county_count)
+  ) %>%
+  # addLegend(
+  #   position = "bottomright",
+  #   pal = pal,
+  #   values = ~county_count,
+  #   title = "Number of Cases",
+  #   opacity = 0.7
+  # ) %>%
+  addControl(html = table_html, position = "bottomleft")
+
+leafMap
+saveWidget(leafMap, "inmates_map_nov_18.html")
+```
+

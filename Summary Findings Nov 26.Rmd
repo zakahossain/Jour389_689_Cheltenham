@@ -30,7 +30,6 @@ library(formattable)
 
 <center>
 
-### NOT FOR PUBLICATION: DEC 9 2025 DRAFT 
 
 # Death Certificates of Cheltenham, Jessup, Hickey Youth
 
@@ -38,8 +37,7 @@ library(formattable)
 
 **Nicole Ramos, Akira Kyles, Brandyn Fragosa, Zaka Hossain, Raphael Romero Ruiz, David Landerman, Sophia Hernandez-Pina, Rob Wells**
 
-### NOT FOR PUBLICATION: DEC 9 2025 DRAFT 
-### NOT FOR PUBLICATION: DEC 9 2025 DRAFT 
+**Dec. 9, 2025**
 
 <center>
 
@@ -120,7 +118,7 @@ dc |>
 ggplot(aes(x = age, y = total, fill = total)) +
   geom_col(position = "dodge") +
   theme(legend.position = "none") +
-  scale_x_continuous(breaks=c(9:21)) +
+  scale_x_continuous(breaks=c(1:21)) +
   labs(title = "Ages of Cheltenham, Jessup youth deaths",
        subtitle = "From 1877-1941, Approximate Ages",
        caption = "n=177. Graphic by Rob Wells, 12-5-2025",
@@ -292,7 +290,7 @@ dc |>
 
 <center>
 
-<img src="images/all_category_summary_dec_9.png" width="1000" height="500"/>
+<img src="images/all_category_summary_dec_10.png" width="1000" height="500"/>
 
 </center>
 
@@ -303,7 +301,7 @@ dc |>
 
 <center>
 
-<img src="images/faceted_causes_of_death_dec_9.png" width="1000" height="500"/>
+<img src="images/causes_death_facet_dec_10.png" width="1000" height="500"/>
 
 </center>
 
@@ -311,7 +309,7 @@ dc |>
 <br>
 **Infectious diseases all causes of death, primary and secondary**
 <br>
-<img src="images/infectious_disease_deaths_dec_9.png" width="1000" height="500"/>
+<img src="images/infectious_diseases_dec_10.png" width="1000" height="500"/>
 
 
 <br>
@@ -446,7 +444,3 @@ leafMap <- leaflet(data = dc_map) %>%
 leafMap
 saveWidget(leafMap, "inmates_map_nov_18.html")
 ```
-
-
-### NOT FOR PUBLICATION: DEC 9 2025 DRAFT 
-### NOT FOR PUBLICATION: DEC 9 2025 DRAFT 
