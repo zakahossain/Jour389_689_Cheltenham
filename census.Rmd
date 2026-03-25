@@ -1,0 +1,41 @@
+---
+title: "index"
+author: "Wells"
+date: "2026-02-25"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(readr)
+library(purrr)
+library(googlesheets4)
+library(janitor)
+```
+
+#Import
+```{r}
+census1 <- read_csv("input/census_data/1930 cheltenham census 1.csv")
+census2 <- read_csv("input/census_data/1930 cheltenham census 2.csv")
+census3 <- read_csv("input/census_data/1930 cheltenham census 3.csv")
+census4 <- read_csv("input/census_data/1930 cheltenham census 4.csv")
+```
+combine
+```{r}
+
+census_1930 <- rbind(census1, census2, census3, census4) |> 
+  clean_names() |> 
+   subset(select = -c(1:6)) |> 
+  slice(-c(1))
+
+```
+
+analytics
+```{r}
+
+census_1930 |> 
+  count(relationship_to_head)
+
+```
+
