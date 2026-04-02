@@ -6,18 +6,16 @@ editor_options:
 ---
 
 ::: {style="text-align: center; color: #1FB0C4; font-weight: bold;"}
-[From Chaos to Narrative:\
-Using R For Story Discovery in Document Collections]{style="font-size: 40pt;"}
+[Baltimore Sun v. Afro American news coverage]{style="font-size: 40pt;"}
 :::
 
+April 2, 2026
 <br>
 
 
 
-> This hands-on session will show how to analyze a large batch of files to find common themes and narratives.
+> This code compares news coverage of Cheltenham in the Baltimore Sun vs the Afro-American
 > We will use R and the Tidytext package to explore common words, analyze sentiment, and then the Quanteda package to examine keywords in the story context.
->
-> This code demonstrates text processing, data cleaning and the creation of bigrams and sentiment analysis from Baltimore Sun coverage of Cheltenham
 
 <br>
 
@@ -26,6 +24,9 @@ Using R For Story Discovery in Document Collections]{style="font-size: 40pt;"}
 Philip Merrill College of Journalism, University of Maryland.\
 [robwells\@umd.edu](mailto:robwells@umd.edu){.email} \| <a href="https://www.linkedin.com/in/rob-wells-7929329/">LinkedIn</a>.\
 :::
+
+**Ela Jalil**
+**Akria Kyles**
 
 ## Load software
 
@@ -57,66 +58,86 @@ library(zoo)
 
 <br>
 
-::: {style="text-align: center; color: #1FB0C4; font-weight: bold;"}
-<img src="assets\printing_hate.png" width="1265" height="619"/>
-
-<a href="https://lynching.cnsmaryland.org/">Howard Center for Investigative Journalism's \`Printing Hate' series</a>.
-
-<a href="https://doi.org/10.1080/1461670X.2025.2478451">'The Ida B. Wells Effect: A Novel Computational Analysis of US Newspaper Lynching Coverage, 1805–1963'</a>.
-:::
-
-[These projects led to the workflow that I use in research and for classes]{style="font-size: 18px; font-weight: bold;"}
-
-::: {style="text-align: center; color: #1FB0C4; font-weight: bold;"}
-# Load & process raw text
-:::
-
-```{r message=FALSE, warning=FALSE}
-bal_sun <- read_csv ("./output/bal_sun_march_24_articles.csv") 
-```
-
-[Quick view of any entry by row]{style="font-size: 18px; font-weight: bold;"}
+#Import Combined Afro-Sun articles
 
 ```{r}
-wrapped_text <- strwrap(as.character(bal_sun$text[5]), width = 60)
-writeLines(wrapped_text, "temp_text.txt")
-#file.edit("temp_text.txt")
+afro_sun <- read_csv("./input/afro_sun_articles_april_2.csv")
 ```
 
-> We now have 81 articles, one row per article, with relevant metadata.
-> But the cleaning is not over.
-> Check publication names for standardization.
 
+### Count the titles
 ```{r}
-bal_sun |> 
-  count(publication) |> 
+afro_sun |> 
+  count(pubtitle) |> 
   arrange(desc(n))
 ```
 
-[Graph article distribution by month]{style="font-size: 18px; font-weight: bold;"}
 
 ```{r message=FALSE, warning=FALSE}
-# library(zoo)
-bal_sun <- bal_sun |>
-  mutate(yearmo = as.yearmon(date))
+
+afro_sun <- afro_sun |>
+  mutate(yearmo = as.yearmon(date_clean))
+
 ```
 
+
+
 ```{r}
-bal_sun |> 
-  count(months = yearmo, name = "total") |> 
-ggplot(aes(x = factor(months), y = total, fill = total)) +
+afro_sun |> 
+  group_by(pubtitle) |> 
+  count(year, name = "total") |> 
+ggplot(aes(x = factor(year), y = total, fill = pubtitle)) +
  geom_col() +
-  theme(legend.position = "none", axis.text.x = element_text(angle=45, hjust = 1)) +
+  theme(legend.position = "none", axis.text.x = element_text(angle=90, hjust = 1)) +
   #coord_flip() +  
   labs(title = "Distribution by Month",
-       caption = "n=81 articles, 2024-2025. Graphic by Rob Wells. 2-22-2026",
+       caption = "n=1030 articles. Graphic by Rob Wells. April 2 -2026",
        x = "Total",
        y = "")
 ```
 
-::: {style="text-align: center; color: #1FB0C4; font-weight: bold;"}
+```{r}
+doc <- afro_sun_articles |> 
+  group_by(pubtitle) |> 
+  count(document_clean)
+
+```
+
+### Clean document type
+```{r}
+afro_sun_articles <- afro_sun_articles %>%
+  mutate(document_clean = case_when(
+    document_type == "ar ticle"  ~ "article",
+    document_type == "arti cle"  ~ "article",
+    document_type == "artic le"  ~ "article",
+    document_type == "articl e"  ~ "article",
+    TRUE ~ document_type  # Fallback to the original value if no match
+  ))
+
+                     
+
+```
+
+# Wells ask - create a new column counting the words of clean_text
+
+```{r}
+letters <- afro_sun_articles |> 
+  filter(document_type =="letter_to_editor")
+
+
+
+```
+
+
+# Quick view of any entry by row
+
+```{r}
+wrapped_text <- strwrap(as.character(letters$full_text[1]), width = 60)
+writeLines(wrapped_text, "temp_text.txt")
+file.edit("temp_text.txt")
+```
 # Bigrams
-:::
+
 
 ```{r}
 

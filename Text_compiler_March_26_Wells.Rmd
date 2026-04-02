@@ -102,13 +102,6 @@ The 87 news articles are in a folder called input.
 > This chunk reads each individual .rtf file, processes it in a loop and
 > transforms it to a .txt raw text file
 
-```{r include=FALSE}
-# Load required packages
-
-# Set the paths for your folders
-input_folder <- "./input/bal_sun_march_24_text/"  # Replace with your input folder path
-output_folder <- "./output/" # Replace with your output folder path
-```
 
 **Next, we take all of those text files and jam them into a dataframe**
 –\> This is a very big deal \<-
@@ -123,9 +116,9 @@ It allows you to perform advanced text analytics on the news stories
 ###
 # List out text files that match pattern .txt, create DF
 ###
-
+# files <- list.files("./input/bal_sun_march_24_text/", pattern="*.txt") %>% 
 #Adjust thisline for your file name
-files <- list.files("./input/bal_sun_march_24_text/", pattern="*.txt") %>% 
+files <- list.files("./input/afro_april_2_text/", pattern="*.txt") %>% 
   as.data.frame() |> 
   rename(filename = 1) |> 
   #create an matching file name
@@ -136,35 +129,20 @@ files <- list.files("./input/bal_sun_march_24_text/", pattern="*.txt") %>%
   distinct(index, .keep_all = TRUE)
 ```
 
-## Check for duplicates
+### Join the file list to the index
 
 ```{r include=FALSE}
-dupe_data <- rio::import("./input/Baltimore Sun ProQuestDocuments-2026-03-22.xlsx") |> 
-  clean_names() |> 
-   #create an matching file name
-  mutate(index = tolower(gsub("[[:punct:][:space:]|]", "", title))) |> 
-  mutate(index = tolower(index)) |> 
-  mutate(index = str_sub(index, 1, 25)) |> 
-  count(title) |> 
-  arrange(desc(n))
-  
-```
 
-## Zap duplicates
 
-> Article count drops from 905 to 693
-
-```{r include=FALSE}
-#Join the file list to the index
-
-final_data <- rio::import("./input/Baltimore Sun ProQuestDocuments-2026-03-22.xlsx", 
+# final_data <- rio::import("./input/Baltimore Sun ProQuestDocuments-2026-03-22.xlsx",
+final_data <- rio::import("./input/afro_index_feb_24.csv",
                           setclass = "tibble",
                           col_types = "text") |> 
   clean_names() |> 
-  mutate(date_clean = mdy(pubdate)) |>
+  mutate(date_clean = ymd(date)) |>
   ungroup() |> 
    #create an matching file name
-  mutate(index = tolower(gsub("[[:punct:][:space:]|]", "", store_id))) |> 
+  mutate(index = tolower(gsub("[[:punct:][:space:]|]", "", document_id))) |> 
   mutate(index = tolower(index)) |> 
   # mutate(index = str_sub(index, 1, 25)) |> 
   distinct(index, .keep_all = TRUE) |> 
@@ -175,13 +153,24 @@ final_data <- rio::import("./input/Baltimore Sun ProQuestDocuments-2026-03-22.xl
 
 ```{r}
 
-final_data |> 
+x <- final_data |> 
   count(title) |> 
   arrange(desc(n)) |> 
   filter(n > 1)
+
+sum(x$n)
+#68 duplicated headlines
+#457 entries - 68 duplicates = 389, which is about where the extracted text is
 ```
 
 ## Final index
+
+```{r}
+final_data <- final_data |> 
+  distinct(title, .keep_all = TRUE)
+
+```
+
 
 > We add the file path for our processed text to permit compiling
 
@@ -190,7 +179,7 @@ final_data |>
 final_index <- final_data |> 
   inner_join(files, c("index")) |> 
 #you need the actual hard-coded path on this line below to the text
-  mutate(filepath = paste0("./input/bal_sun_march_24_text/", filename))
+  mutate(filepath = paste0("./input/afro_april_2_text/", filename))
 
 ```
 
@@ -233,7 +222,7 @@ articles_final <- articles_df %>%
   ) %>%
   ungroup() %>%
   # Keep only your required columns
-  select(date_clean, year, title, abstract, authors, document_type, store_id, article_type, full_text, entry_date, pubtitle, document_url, index, filepath)
+  select(index, date_clean, year, title, full_text, abstract, authors, document_type, document_id, document_type, pubtitle, document_url, , filename, filepath)
 
 
 ```
@@ -243,7 +232,7 @@ articles_final <- articles_df %>%
 :::
 
 ```{r}
-wrapped_text <- strwrap(as.character(articles_final$full_text[11]), width = 60)
+wrapped_text <- strwrap(as.character(articles_final$full_text[10]), width = 60)
 writeLines(wrapped_text, "temp_text.txt")
 file.edit("temp_text.txt")
 ```
@@ -272,8 +261,45 @@ articles_df <- articles_final |>
   )
 
 
-write_csv(articles_df, "./output/bal_sun_march_24_articles.csv")
+write_csv(articles_df, "./output/afro_april_2_articles.csv")
 
+```
+
+
+# Load & process raw text
+
+```{r message=FALSE, warning=FALSE}
+bal_sun <- read_csv ("./input/bal_sun_march_24_articles.csv") 
+afro <- read_csv("./input/afro_april_2_articles.csv")
+```
+
+[Quick view of any entry by row]{style="font-size: 18px; font-weight: bold;"}
+
+```{r}
+wrapped_text <- strwrap(as.character(bal_sun$text[5]), width = 60)
+writeLines(wrapped_text, "temp_text.txt")
+#file.edit("temp_text.txt")
+```
+
+### Count the titles
+```{r}
+bal_sun |> 
+  count(pubtitle) |> 
+  arrange(desc(n))
+```
+
+```{r}
+afro |> 
+  count(pubtitle) |> 
+  arrange(desc(n))
+```
+
+### Combine the dfs
+```{r}
+afro_sun_articles <- bind_rows(afro, bal_sun) |> 
+  relocate(date_clean, year, pubtitle, title, authors, document_type, index)
+
+write_csv(afro_sun_articles, "./output/afro_sun_articles_april_2.csv")
 ```
 
 
