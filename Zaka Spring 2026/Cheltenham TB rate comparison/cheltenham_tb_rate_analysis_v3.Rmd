@@ -1,0 +1,308 @@
+---
+title: "Cheltenham TB Death Rate Analysis"
+author: "Zaka H"
+date: "2026-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Load Libraries
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+library(googlesheets4)
+library(janitor)
+```
+
+## Overview
+
+This analysis:
+
+1. Counts tuberculosis deaths at Cheltenham by year
+2. Calculates Cheltenham TB death rate per 100,000 inmates
+3. Compares Cheltenham rates against Maryland state TB rates
+
+**Historical TB terminology captured:** Tuberculosis, Pulmonary Tuberculosis, Miliary Tuberculosis, Phthisis, Pthisis, Consumption, Consumptive
+
+---
+
+## Load Data
+
+### Death Certificates (Master Sheet)
+
+```{r load-deaths}
+gs4_deauth()
+
+# Master death certificates
+death_certs <- read_sheet("https://docs.google.com/spreadsheets/d/1Qu7FSUzCAeU4gdZ9BpIvfxI5kBp5rAOgEiaQ2h0ff4k/edit?gid=0#gid=0") |> 
+  clean_names()
+
+# Filter to Cheltenham only
+cheltenham <- death_certs |> 
+  filter(tolower(facility) == "cheltenham")
+
+cat("Total Cheltenham death records:", nrow(cheltenham), "\n")
+```
+
+### Annual Reports (Inmate Population)
+
+
+```{r load-population}
+# Annual report data with inmate counts
+chelt_annual <- read_sheet("https://docs.google.com/spreadsheets/d/1VP5TAxWac7jNOwdq8QKg6J0HzEpyQ1x_H1Jqiu5or74/edit?gid=1296292904#gid=1296292904") |> 
+  clean_names() |> 
+  rename(
+    year_of_report = year,
+    number_of_inmates = number_of_inmates_at_end_of_year
+  ) |> 
+  mutate(
+    year_of_report = as.numeric(year_of_report),
+    number_of_inmates = as.numeric(number_of_inmates)
+  ) |> 
+  filter(!is.na(year_of_report))
+
+cat("Annual reports loaded:", nrow(chelt_annual), "years\n")
+
+# Verify key years have data
+chelt_annual |> 
+  filter(year_of_report %in% c(1910, 1915, 1920, 1925, 1930, 1935, 1940)) |> 
+  select(year_of_report, number_of_inmates)
+```
+
+### Maryland TB Rates
+
+```{r load-maryland}
+# Read directly from Google Drive export URL
+# Keep all race categories
+md_tb_rates <- read_csv("https://drive.google.com/uc?export=download&id=1w1sKye2egDiNxOZN_kA6ORD2EDCtTQd6") |> 
+  select(year, race, tb_all_forms_rate) |> 
+  pivot_wider(
+    names_from = race,
+    values_from = tb_all_forms_rate,
+    names_prefix = "md_tb_"
+  ) |> 
+  clean_names()
+
+cat("Maryland TB rates loaded for years:", paste(md_tb_rates$year, collapse = ", "), "\n")
+```
+
+---
+
+## Classify TB Deaths
+
+```{r classify-tb}
+# Regex for all TB terminology
+tb_regex <- "tubercul|phthisis|pthisis|consumption|consumptive|miliary"
+
+# Classify TB deaths (death_year already exists in data)
+cheltenham <- cheltenham |> 
+  mutate(
+    # Convert death_year to numeric if needed
+    death_year = as.numeric(death_year),
+    
+    # Check for TB in primary cause only
+    tb_death = str_detect(tolower(replace_na(primary_death, "")), tb_regex)
+  )
+
+# Verify
+cat("Deaths with valid year:", sum(!is.na(cheltenham$death_year)), "\n")
+cat("TB deaths identified:", sum(cheltenham$tb_death, na.rm = TRUE), "\n")
+```
+
+---
+
+## TB Deaths by Year
+
+```{r count-by-year}
+# Total deaths by year
+total_by_year <- cheltenham |> 
+  filter(!is.na(death_year)) |> 
+  count(death_year, name = "total_deaths")
+
+# TB deaths by year
+tb_by_year <- cheltenham |> 
+  filter(tb_death == TRUE, !is.na(death_year)) |> 
+  count(death_year, name = "tb_deaths")
+
+# Combine
+tb_summary <- total_by_year |> 
+  left_join(tb_by_year, by = "death_year") |> 
+  mutate(
+    tb_deaths = replace_na(tb_deaths, 0),
+    tb_pct_of_deaths = round((tb_deaths / total_deaths) * 100, 1)
+  ) |> 
+  arrange(death_year)
+
+knitr::kable(tb_summary, col.names = c("Year", "Total Deaths", "TB Deaths", "TB % of Deaths"))
+```
+
+### Summary Statistics
+
+```{r summary-stats}
+cat("Total Cheltenham deaths:", sum(tb_summary$total_deaths), "\n")
+cat("Total TB deaths:", sum(tb_summary$tb_deaths), "\n")
+cat("TB as % of all deaths:", round(sum(tb_summary$tb_deaths) / sum(tb_summary$total_deaths) * 100, 1), "%\n")
+```
+
+---
+
+## Calculate Cheltenham TB Rate per 100,000
+
+To compare with Maryland state rates, we calculate:
+
+**Cheltenham TB Rate = (TB deaths / Inmate population) × 100,000**
+
+```{r calculate-rate}
+# Join TB deaths with inmate population from annual reports
+# DON'T filter out missing data - keep all years
+cheltenham_rates <- tb_summary |> 
+  left_join(
+    chelt_annual |> select(year_of_report, number_of_inmates),
+    by = c("death_year" = "year_of_report")
+  ) |> 
+  mutate(
+    # Calculate rate per 100,000 (will be NA if no inmate data)
+    chelt_tb_rate = round((tb_deaths / number_of_inmates) * 100000, 1)
+  )
+
+knitr::kable(
+  cheltenham_rates |> select(death_year, tb_deaths, number_of_inmates, chelt_tb_rate),
+  col.names = c("Year", "TB Deaths", "Inmates", "TB Rate per 100k")
+)
+```
+
+---
+
+## Compare Cheltenham vs Maryland TB Rates
+
+```{r compare-rates}
+# Start from Maryland years, then join Cheltenham data
+# This ensures all Maryland years appear
+comparison <- md_tb_rates |> 
+  full_join(cheltenham_rates, by = c("year" = "death_year")) |> 
+  rename(death_year = year) |> 
+  mutate(
+    # Rate ratio vs non-white Maryland population
+    rate_ratio = round(chelt_tb_rate / md_tb_all_other_races, 1),
+    excess_rate = round(chelt_tb_rate - md_tb_all_other_races, 1)
+  ) |> 
+  arrange(death_year)
+
+knitr::kable(
+  comparison |> select(death_year, chelt_tb_rate, md_tb_white, md_tb_all_other_races, rate_ratio, excess_rate),
+  col.names = c("Year", "Cheltenham Rate", "MD White", "MD Non-White", "Rate Ratio (vs Non-White)", "Excess Rate")
+)
+```
+
+### Summary
+
+```{r comparison-summary}
+cat("Average Cheltenham TB rate:", round(mean(comparison$chelt_tb_rate, na.rm = TRUE), 1), "per 100,000\n")
+cat("Average Maryland (Non-White) TB rate:", round(mean(comparison$md_tb_all_other_races, na.rm = TRUE), 1), "per 100,000\n")
+cat("Average Maryland (White) TB rate:", round(mean(comparison$md_tb_white, na.rm = TRUE), 1), "per 100,000\n")
+cat("Average rate ratio (Cheltenham/MD Non-White):", round(mean(comparison$rate_ratio, na.rm = TRUE), 1), "x\n")
+```
+
+---
+
+## Visualization: Cheltenham vs Maryland TB Rates
+
+```{r plot-comparison, fig.width=10, fig.height=6}
+# Reshape for plotting
+plot_data <- comparison |> 
+  select(death_year, chelt_tb_rate, md_tb_white, md_tb_all_other_races) |> 
+  pivot_longer(
+    cols = c(chelt_tb_rate, md_tb_white, md_tb_all_other_races),
+    names_to = "source",
+    values_to = "rate"
+  ) |> 
+  mutate(
+    source = case_when(
+      source == "chelt_tb_rate" ~ "Cheltenham",
+      source == "md_tb_white" ~ "Maryland (White)",
+      source == "md_tb_all_other_races" ~ "Maryland (Non-White)"
+    )
+  ) |> 
+  filter(!is.na(rate))
+
+ggplot(plot_data, aes(x = death_year, y = rate, color = source, group = source)) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 3) +
+  scale_color_manual(
+    name = NULL,
+    values = c(
+      "Cheltenham" = "#8B0000", 
+      "Maryland (White)" = "#228B22",
+      "Maryland (Non-White)" = "#4169E1"
+    )
+  ) +
+  labs(
+    title = "Tuberculosis Death Rates: Cheltenham vs Maryland",
+    subtitle = "Rate per 100,000 population",
+    x = "Year",
+    y = "TB Deaths per 100,000",
+    caption = "Source: Vital Statistics in the United States, 1900-1940; TB Count 1900-1940; by race, sex and age;\npg 344 Specific Death Rates for Selected Causes, by Race: Death Registration States and Each State, 1900-1940, Every Fifth Year;\nCheltenham rates from death certificates (master_data_feb_4)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.caption = element_text(hjust = 0, size = 8),
+    legend.position = "bottom",
+    legend.text = element_text(size = 10),
+    legend.key.width = unit(1.5, "cm")
+  ) +
+  guides(color = guide_legend(nrow = 1))
+
+ggsave("cheltenham_vs_maryland_tb_rates.png", width = 10, height = 6, dpi = 300)
+```
+
+---
+
+## All TB Deaths (with Personal IDs)
+
+```{r tb-cases}
+tb_cases <- cheltenham |> 
+  filter(tb_death == TRUE) |> 
+  select(personal_id, name, death_year, cause_of_death, primary_death) |> 
+  arrange(death_year)
+
+knitr::kable(tb_cases, col.names = c("ID", "Name", "Year", "Cause of Death", "Primary Cause"))
+```
+
+---
+
+## Export Data
+
+```{r export}
+# Year-by-year summary with rates
+write_csv(cheltenham_rates, "cheltenham_tb_rates_by_year.csv")
+
+# TB cases with personal IDs
+write_csv(tb_cases, "cheltenham_tb_cases.csv")
+
+# Comparison table
+write_csv(comparison, "cheltenham_vs_maryland_tb_comparison.csv")
+
+cat("Exported files:\n")
+cat("  - cheltenham_tb_rates_by_year.csv\n")
+cat("  - cheltenham_tb_cases.csv\n")
+cat("  - cheltenham_vs_maryland_tb_comparison.csv\n")
+```
+
+---
+
+## Methodology Notes
+
+1. **TB Classification**: Deaths classified as TB if primary cause contains: tuberculosis, tubercular, phthisis, pthisis, consumption, consumptive, or miliary
+
+2. **Cheltenham Rate Calculation**: `(TB deaths in year / inmate population in year) × 100,000`
+
+3. **Maryland Comparison**: Includes both "White" and "All other races" categories. Rate ratio calculated against "All other races" since Cheltenham was a Black institution. Maryland rates are from CDC/NCHS Vital Statistics historical data (5-year intervals: 1910, 1915, 1920, 1925, 1930, 1935, 1940).
+
+4. **Rate Ratio Interpretation**: A ratio of 2.0 means Cheltenham's TB death rate was twice the Maryland state rate for the same year.
+
+5. **Data Limitations**: Maryland rates only available at 5-year intervals; Cheltenham rates calculable for years with inmate population data from annual reports (1873-1938).
